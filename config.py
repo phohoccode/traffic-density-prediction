@@ -9,6 +9,7 @@
 -------------------------------------------------
 """
 from pathlib import Path
+from collections import OrderedDict
 import sys
 
 # Get the absolute path of the current file
@@ -47,3 +48,17 @@ DETECTION_MODEL_LIST = [
 
 OBJECT_COUNTER = None
 OBJECT_COUNTER1 = None
+
+# Traffic Thresholds (Ngưỡng mật độ giao thông)
+THRESHOLD_CLEAR = 10      # Dưới 10 xe là thông thoáng
+THRESHOLD_CONGESTED = 20  # Trên 20 xe là tắc nghẽn
+
+# Database Update Frequency (Số lượng frame xử lý trước khi lưu log vào DB)
+# Ví dụ: 30 frame lưu 1 lần để tránh làm chậm hệ thống và tràn dữ liệu
+DB_UPDATE_INTERVAL = 30
+
+# Object Tracking Configuration
+# Tracker type: bytetrack hoặc botsort
+TRACKER_TYPE = "bytetrack.yaml"  # ByteTrack - fast and accurate
+# Set để lưu ID các xe đã tracking (reset khi chạy mới)
+TRACKED_VEHICLE_IDS = set()
