@@ -44,3 +44,14 @@ psutil  # system utilization
 
 pymongo>=4.0.0  # MongoDB driver
 motor>=3.0.0  # Async MongoDB driver
+
+# WebSocket & Real-time ----------------------
+flask>=2.0.0  # Flask web framework
+flask-cors>=3.0.10  # CORS support
+flask-socketio>=5.0.0  # Socket.IO integration
+python-socketio>=5.0.0  # Socket.IO client
+python-engineio>=4.0.0  # Engine.IO protocol
+
+# Data Export --------------------------------
+openpyxl>=3.0.0  # Excel export
+xlsxwriter>=3.0.0  # Excel writer

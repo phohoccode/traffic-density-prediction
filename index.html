@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BÁO CÁO GIÁM SÁT GIAO THÔNG - BIỂU ĐỒ THỜI GIAN THỰC</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+
+      header {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+
+      h1 {
+        color: #333;
+        font-size: 28px;
+        margin-bottom: 10px;
+      }
+
+      .status-badge {
+        display: inline-block;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-weight: bold;
+        color: white;
+      }
+
+      .status-normal {
+        background-color: #10b981;
+      }
+
+      .status-congested {
+        background-color: #f59e0b;
+      }
+
+      .status-critical {
+        background-color: #ef4444;
+      }
+
+      .connection-indicator {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-left: 10px;
+        animation: pulse 2s infinite;
+      }
+
+      .connection-indicator.connected {
+        background-color: #10b981;
+      }
+
+      .connection-indicator.disconnected {
+        background-color: #ef4444;
+        animation: none;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+      }
+
+      .metric-card {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border-left: 4px solid #667eea;
+      }
+
+      .metric-label {
+        color: #666;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 10px;
+      }
+
+      .metric-value {
+        color: #333;
+        font-size: 32px;
+        font-weight: bold;
+      }
+
+      .metric-unit {
+        color: #999;
+        font-size: 14px;
+        margin-left: 5px;
+      }
+
+      .chart-section {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+
+      .chart-title {
+        font-size: 18px;
+        font-weight: bold;
+        color: #333;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #667eea;
+      }
+
+      .chart-container {
+        position: relative;
+        height: 350px;
+        margin-bottom: 20px;
+      }
+
+      .charts-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+        gap: 20px;
+      }
+
+      .controls {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      button {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        background-color: #667eea;
+        color: white;
+        cursor: pointer;
+        font-weight: bold;
+        transition: background-color 0.3s;
+      }
+
+      button:hover {
+        background-color: #5568d3;
+      }
+
+      button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+
+      .status-text {
+        font-size: 14px;
+        color: #666;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .timestamp {
+        font-size: 12px;
+        color: #999;
+        text-align: right;
+        margin-top: 10px;
+      }
+
+      .vehicle-types-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      .vehicle-type-card {
+        background: #f3f4f6;
+        padding: 15px;
+        border-radius: 8px;
+        text-align: center;
+        border-left: 3px solid #667eea;
+      }
+
+      .vehicle-type-name {
+        font-size: 12px;
+        color: #666;
+        text-transform: uppercase;
+        margin-bottom: 5px;
+      }
+
+      .vehicle-type-count {
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
+      }
+
+      .no-data {
+        text-align: center;
+        padding: 40px;
+        color: #999;
+      }
+
+      .alert {
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+        display: none;
+      }
+
+      .alert-info {
+        background-color: #dbeafe;
+        color: #0c4a6e;
+        border-left: 4px solid #0284c7;
+      }
+
+      .alert-success {
+        background-color: #dcfce7;
+        color: #166534;
+        border-left: 4px solid #16a34a;
+      }
+
+      .alert-warning {
+        background-color: #fef3c7;
+        color: #92400e;
+        border-left: 4px solid #f59e0b;
+      }
+
+      .alert.show {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- Header -->
+      <header>
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+          "
+        >
+          <div>
+            <h1>BÁO CÁO GIÁM SÁT GIAO THÔNG</h1>
+            <p style="color: #666; margin-top: 5px">
+              Biểu đồ phân tích xu hướng mật độ giao thông thời gian thực
+            </p>
+          </div>
+          <div>
+            <span id="connectionStatus" class="status-text">
+              <span>Trạng thái:</span>
+              <span id="connectionText" style="color: #ef4444"
+                >Chưa kết nối</span
+              >
+              <span
+                id="connectionDot"
+                class="connection-indicator disconnected"
+              ></span>
+            </span>
+          </div>
+        </div>
+        <div style="margin-top: 10px">
+          <span id="currentStatus" class="status-badge status-normal"
+            >Thông thoáng</span
+          >
+          <span style="margin-left: 10px; color: #666; font-size: 14px"
+            >Cập nhật lần cuối: <span id="lastUpdate">--:-- --</span></span
+          >
+        </div>
+      </header>
+
+      <!-- Alerts -->
+      <div id="alertContainer"></div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <button id="resetBtn" onclick="resetData()">Đặt lại dữ liệu</button>
+        <button
+          id="toggleAutoScroll"
+          onclick="toggleAutoScroll()"
+          style="background-color: #764ba2"
+        >
+          ↓ Tự động cuộn
+        </button>
+        <span class="status-text">
+          <span>Clients kết nối:</span>
+          <span id="connectedClients" style="font-weight: bold; color: #667eea"
+            >0</span
+          >
+        </span>
+      </div>
+
+      <!-- Metrics -->
+      <div class="metrics">
+        <div class="metric-card">
+          <div class="metric-label">Mật độ hiện tại</div>
+          <div>
+            <span class="metric-value" id="currentDensity">0</span>
+            <span class="metric-unit">xe</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Mật độ cao nhất</div>
+          <div>
+            <span class="metric-value" id="peakDensity">0</span>
+            <span class="metric-unit">xe</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Mật độ thấp nhất</div>
+          <div>
+            <span class="metric-value" id="minDensity">0</span>
+            <span class="metric-unit">xe</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Tổng bản ghi</div>
+          <div>
+            <span class="metric-value" id="totalRecords">0</span>
+            <span class="metric-unit">bản</span>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Tổng xe phát hiện</div>
+          <div>
+            <span class="metric-value" id="totalVehicles">0</span>
+            <span class="metric-unit">xe</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="charts-grid">
+        <!-- Density Time Series Chart -->
+        <div class="chart-section">
+          <div class="chart-title">Xu hướng mật độ giao thông</div>
+          <div class="chart-container">
+            <canvas id="densityChart"></canvas>
+          </div>
+          <div class="timestamp">
+            Dữ liệu tính đến: <span id="densityTimestamp">--:--:--</span>
+          </div>
+        </div>
+
+        <!-- Vehicle Types Bar Chart -->
+        <div class="chart-section">
+          <div class="chart-title">Phân loại theo loại xe</div>
+          <div class="chart-container">
+            <canvas id="vehicleTypesChart"></canvas>
+          </div>
+          <div class="timestamp">
+            Dữ liệu tính đến: <span id="vehicleTimestamp">--:--:--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Vehicle Types Summary -->
+      <div class="chart-section">
+        <div class="chart-title">Thống kê chi tiết loại xe</div>
+        <div id="vehicleTypesSummary" class="vehicle-types-grid">
+          <div class="no-data">Chưa có dữ liệu</div>
+        </div>
+      </div>
+
+      <!-- Detailed Log -->
+      <div class="chart-section">
+        <div class="chart-title">Nhật ký mật độ (20 bản ghi gần nhất)</div>
+        <div id="detailedLog" style="max-height: 300px; overflow-y: auto">
+          <div class="no-data">Chưa có dữ liệu</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ==================== Configuration ====================
+      const SOCKET_SERVER =
+        window.location.protocol === "https:"
+          ? "https://" + window.location.hostname + ":5000"
+          : "http://" + window.location.hostname + ":5000";
+      const MAX_HISTORY = 100;
+
+      let socket = null;
+      let densityChart = null;
+      let vehicleTypesChart = null;
+      let autoScroll = true;
+      let detailedLogs = [];
+
+      // Data state
+      const state = {
+        densityHistory: [],
+        vehicleTypes: {},
+        currentDensity: 0,
+        currentStatus: "Normal",
+        peakDensity: 0,
+        minDensity: Infinity,
+        totalVehicles: 0,
+        connectedClients: 0,
+      };
+
+      // ==================== Initialize Socket.IO ====================
+      function initSocket() {
+        try {
+          socket = io(SOCKET_SERVER, {
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            reconnectionAttempts: 5,
+          });
+
+          socket.on("connect", onSocketConnect);
+          socket.on("disconnect", onSocketDisconnect);
+          socket.on("density_update", onDensityUpdate);
+          socket.on("vehicle_types_update", onVehicleTypesUpdate);
+          socket.on("current_state", onCurrentState);
+          socket.on("analysis_start", onAnalysisStart);
+          socket.on("analysis_complete", onAnalysisComplete);
+          socket.on("connect_error", onConnectError);
+        } catch (err) {
+          showAlert("Lỗi kết nối WebSocket: " + err.message, "warning");
+          console.error("Socket initialization error:", err);
+        }
+      }
+
+      function onSocketConnect() {
+        updateConnectionStatus(true);
+        showAlert("✓ Đã kết nối đến server", "success");
+
+        // Request current state
+        if (socket) {
+          socket.emit("request_state");
+        }
+      }
+
+      function onSocketDisconnect() {
+        updateConnectionStatus(false);
+        showAlert("✗ Mất kết nối đến server", "warning");
+      }
+
+      function onConnectError(error) {
+        console.error("Connection error:", error);
+        showAlert("Lỗi kết nối: " + error, "warning");
+      }
+
+      function onDensityUpdate(data) {
+        const timestamp = new Date(data.timestamp);
+        const timeStr = timestamp.toLocaleTimeString("vi-VN");
+
+        // Add to history
+        state.densityHistory.push({
+          timestamp: timeStr,
+          density: data.density,
+          status: data.status,
+          fullTime: timestamp,
+        });
+
+        // Keep only last MAX_HISTORY records
+        if (state.densityHistory.length > MAX_HISTORY) {
+          state.densityHistory.shift();
+        }
+
+        // Update state
+        state.currentDensity = data.density;
+        state.currentStatus = data.status;
+        state.peakDensity = Math.max(state.peakDensity, data.density);
+        state.minDensity = Math.min(state.minDensity, data.density);
+
+        // Add to detailed logs
+        detailedLogs.unshift({
+          timestamp: timestamp.toLocaleString("vi-VN"),
+          density: data.density,
+          status: data.status,
+        });
+
+        // Keep only last 20 logs
+        if (detailedLogs.length > 20) {
+          detailedLogs.pop();
+        }
+
+        // Update UI
+        updateUI();
+        updateCharts();
+      }
+
+      function onVehicleTypesUpdate(data) {
+        state.vehicleTypes = data.vehicle_types;
+        state.totalVehicles = data.total_detected;
+        updateUI();
+        updateCharts();
+      }
+
+      function onCurrentState(data) {
+        console.log("Current state received:", data);
+        state.densityHistory = data.density_history.map((record) => ({
+          timestamp: new Date(record.timestamp).toLocaleTimeString("vi-VN"),
+          density: record.density,
+          status: record.status,
+          fullTime: new Date(record.timestamp),
+        }));
+        state.vehicleTypes = data.vehicle_types;
+        state.currentDensity = data.current_density;
+        state.currentStatus = data.current_status;
+        state.totalVehicles = data.total_vehicles_detected;
+        state.connectedClients = data.connected_clients;
+
+        // Calculate peaks
+        if (state.densityHistory.length > 0) {
+          state.peakDensity = Math.max(
+            ...state.densityHistory.map((r) => r.density)
+          );
+          state.minDensity = Math.min(
+            ...state.densityHistory.map((r) => r.density)
+          );
+        }
+
+        updateUI();
+        updateCharts();
+      }
+
+      function onAnalysisStart(data) {
+        showAlert("Bắt đầu phân tích video...", "info");
+        state.densityHistory = [];
+        state.vehicleTypes = {};
+        state.peakDensity = 0;
+        state.minDensity = Infinity;
+        detailedLogs = [];
+        updateUI();
+        updateCharts();
+      }
+
+      function onAnalysisComplete(data) {
+        showAlert("Hoàn thành phân tích video: " + data.message, "success");
+      }
+
+      // ==================== UI Updates ====================
+      function updateUI() {
+        // Update metrics
+        document.getElementById("currentDensity").textContent =
+          state.currentDensity;
+        document.getElementById("peakDensity").textContent = state.peakDensity;
+        document.getElementById("minDensity").textContent =
+          state.minDensity === Infinity ? "0" : state.minDensity;
+        document.getElementById("totalRecords").textContent =
+          state.densityHistory.length;
+        document.getElementById("totalVehicles").textContent =
+          state.totalVehicles;
+
+        // Update status badge
+        const statusBadge = document.getElementById("currentStatus");
+        statusBadge.className = "status-badge";
+        if (state.currentDensity < 10) {
+          statusBadge.className += " status-normal";
+          statusBadge.textContent = "Thông thoáng";
+        } else if (state.currentDensity > 20) {
+          statusBadge.className += " status-critical";
+          statusBadge.textContent = "Tắc nghẽn";
+        } else {
+          statusBadge.className += " status-congested";
+          statusBadge.textContent = "Đông đúc";
+        }
+
+        // Update timestamp
+        const now = new Date();
+        document.getElementById("lastUpdate").textContent =
+          now.toLocaleTimeString("vi-VN");
+        document.getElementById("densityTimestamp").textContent =
+          now.toLocaleTimeString("vi-VN");
+        document.getElementById("vehicleTimestamp").textContent =
+          now.toLocaleTimeString("vi-VN");
+
+        // Update vehicle types summary
+        updateVehicleTypesSummary();
+
+        // Update detailed logs
+        updateDetailedLogs();
+      }
+
+      function updateVehicleTypesSummary() {
+        const container = document.getElementById("vehicleTypesSummary");
+        if (Object.keys(state.vehicleTypes).length === 0) {
+          container.innerHTML =
+            '<div class="no-data" style="grid-column: 1/-1;">Chưa có dữ liệu</div>';
+          return;
+        }
+
+        const vehicleNames = {
+          car: "Ô tô",
+          motorcycle: "Xe máy",
+          truck: "Xe tải",
+          bus: "Xe buýt",
+        };
+
+        container.innerHTML = Object.entries(state.vehicleTypes)
+          .map(
+            ([type, count]) => `
+                    <div class="vehicle-type-card">
+                        <div class="vehicle-type-name">${
+                          vehicleNames[type] || type
+                        }</div>
+                        <div class="vehicle-type-count">${count}</div>
+                    </div>
+                `
+          )
+          .join("");
+      }
+
+      function updateDetailedLogs() {
+        const container = document.getElementById("detailedLog");
+        if (detailedLogs.length === 0) {
+          container.innerHTML = '<div class="no-data">Chưa có dữ liệu</div>';
+          return;
+        }
+
+        const html = `
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <thead>
+                        <tr style="background-color: #f3f4f6; border-bottom: 1px solid #e5e7eb;">
+                            <th style="padding: 10px; text-align: left;">Thời gian</th>
+                            <th style="padding: 10px; text-align: center;">Số xe</th>
+                            <th style="padding: 10px; text-align: left;">Trạng thái</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${detailedLogs
+                          .map(
+                            (log) => `
+                            <tr style="border-bottom: 1px solid #e5e7eb; hover: background-color: #f9fafb;">
+                                <td style="padding: 10px;">${log.timestamp}</td>
+                                <td style="padding: 10px; text-align: center; font-weight: bold;">${
+                                  log.density
+                                }</td>
+                                <td style="padding: 10px;">
+                                    <span class="status-badge ${getStatusClass(
+                                      log.density
+                                    )}" style="font-size: 11px;">
+                                        ${getStatusText(log.density)}
+                                    </span>
+                                </td>
+                            </tr>
+                        `
+                          )
+                          .join("")}
+                    </tbody>
+                </table>
+            `;
+        container.innerHTML = html;
+
+        if (autoScroll) {
+          container.parentElement.scrollTop = 0;
+        }
+      }
+
+      function getStatusClass(density) {
+        if (density < 10) return "status-normal";
+        if (density > 20) return "status-critical";
+        return "status-congested";
+      }
+
+      function getStatusText(density) {
+        if (density < 10) return "Thông thoáng";
+        if (density > 20) return "Tắc nghẽn";
+        return "Đông đúc";
+      }
+
+      function updateConnectionStatus(connected) {
+        const dot = document.getElementById("connectionDot");
+        const text = document.getElementById("connectionText");
+        const clients = document.getElementById("connectedClients");
+
+        if (connected) {
+          dot.className = "connection-indicator connected";
+          text.textContent = "Đã kết nối";
+          text.style.color = "#10b981";
+        } else {
+          dot.className = "connection-indicator disconnected";
+          text.textContent = "Chưa kết nối";
+          text.style.color = "#ef4444";
+        }
+
+        clients.textContent = state.connectedClients;
+      }
+
+      function showAlert(message, type = "info") {
+        const container = document.getElementById("alertContainer");
+        const id = "alert-" + Date.now();
+        const alert = document.createElement("div");
+        alert.id = id;
+        alert.className = `alert alert-${type} show`;
+        alert.textContent = message;
+        container.appendChild(alert);
+
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+          alert.remove();
+        }, 5000);
+      }
+
+      function toggleAutoScroll() {
+        autoScroll = !autoScroll;
+        const btn = document.getElementById("toggleAutoScroll");
+        btn.style.backgroundColor = autoScroll ? "#764ba2" : "#999";
+      }
+
+      function resetData() {
+        state.densityHistory = [];
+        state.vehicleTypes = {};
+        state.peakDensity = 0;
+        state.minDensity = Infinity;
+        state.currentDensity = 0;
+        detailedLogs = [];
+        updateUI();
+        updateCharts();
+        showAlert("Dữ liệu đã được đặt lại", "success");
+      }
+
+      // ==================== Charts ====================
+      function initCharts() {
+        // Density Chart
+        const densityCtx = document
+          .getElementById("densityChart")
+          .getContext("2d");
+        densityChart = new Chart(densityCtx, {
+          type: "line",
+          data: {
+            labels: [],
+            datasets: [
+              {
+                label: "Số lượng xe",
+                data: [],
+                borderColor: "#667eea",
+                backgroundColor: "rgba(102, 126, 234, 0.1)",
+                borderWidth: 2,
+                tension: 0.4,
+                fill: true,
+                pointBackgroundColor: "#667eea",
+                pointRadius: 4,
+                pointHoverRadius: 6,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                display: true,
+                labels: { usePointStyle: true },
+              },
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { stepSize: 5 },
+              },
+            },
+          },
+        });
+
+        // Vehicle Types Chart
+        const vehicleCtx = document
+          .getElementById("vehicleTypesChart")
+          .getContext("2d");
+        vehicleTypesChart = new Chart(vehicleCtx, {
+          type: "bar",
+          data: {
+            labels: [],
+            datasets: [
+              {
+                label: "Số lượng",
+                data: [],
+                backgroundColor: ["#667eea", "#764ba2", "#f093fb", "#4facfe"],
+                borderRadius: 8,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                display: true,
+                labels: { usePointStyle: true },
+              },
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { stepSize: 5 },
+              },
+            },
+          },
+        });
+      }
+
+      function updateCharts() {
+        if (!densityChart || !vehicleTypesChart) return;
+
+        // Update density chart
+        densityChart.data.labels = state.densityHistory.map((r) => r.timestamp);
+        densityChart.data.datasets[0].data = state.densityHistory.map(
+          (r) => r.density
+        );
+        densityChart.update("none");
+
+        // Update vehicle types chart
+        const vehicleNames = {
+          car: "Ô tô",
+          motorcycle: "Xe máy",
+          truck: "Xe tải",
+          bus: "Xe buýt",
+        };
+
+        const types = Object.keys(state.vehicleTypes).sort();
+        vehicleTypesChart.data.labels = types.map((t) => vehicleNames[t] || t);
+        vehicleTypesChart.data.datasets[0].data = types.map(
+          (t) => state.vehicleTypes[t] || 0
+        );
+        vehicleTypesChart.update("none");
+      }
+
+      // ==================== Initialization ====================
+      document.addEventListener("DOMContentLoaded", () => {
+        console.log("Initializing dashboard...");
+        initSocket();
+        initCharts();
+        updateUI();
+      });
+    </script>
+  </body>
+</html>

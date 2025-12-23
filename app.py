@@ -54,6 +54,14 @@ st.set_page_config(
 # 3. Sidebar - Cấu hình Model (Phải làm trước để có biến confidence và model)
 st.sidebar.header("Cấu hình mô hình DL")
 
+# Hiển thị thông tin device
+with st.sidebar.expander("Thông tin hệ thống"):
+    st.write(f"**Device:** {config.DEVICE.upper()}")
+    if config.DEVICE == "cuda":
+        st.write(f"**GPU:** {config.GPU_NAME}")
+        st.write(f"**VRAM:** {config.GPU_VRAM:.2f} GB")
+    st.write(f"**PyTorch:** {torch.__version__}")
+
 task_type = st.sidebar.selectbox(
     "Chọn tác vụ",
     ["Phát hiện"]
@@ -234,18 +242,177 @@ with tab2:
                     st.dataframe(df_vehicle_stats, use_container_width=True, hide_index=True)
                     total_vehicles = df_vehicle_stats['count'].sum()
                     st.metric("Tổng số xe phát hiện", f"{total_vehicles}")
+                
+                # === DOWNLOAD BUTTONS ===
+                st.markdown("**Tải dữ liệu loại xe:**")
+                col_csv, col_excel, col_json = st.columns(3)
+                
+                # CSV format
+                with col_csv:
+                    csv_data = df_vehicle_stats.to_csv(index=False, encoding='utf-8-sig')
+                    st.download_button(
+                        label="CSV",
+                        data=csv_data,
+                        file_name=f"vehicle_stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="download_vehicle_csv"
+                    )
+                
+                # Excel format
+                with col_excel:
+                    try:
+                        from openpyxl import Workbook
+                        import io
+                        wb = Workbook()
+                        ws = wb.active
+                        ws.title = "Vehicle Stats"
+                        
+                        # Header
+                        for col_idx, col_name in enumerate(df_vehicle_stats.columns, 1):
+                            ws.cell(row=1, column=col_idx, value=col_name)
+                        
+                        # Data
+                        for row_idx, row in enumerate(df_vehicle_stats.values, 2):
+                            for col_idx, value in enumerate(row, 1):
+                                ws.cell(row=row_idx, column=col_idx, value=value)
+                        
+                        excel_buffer = io.BytesIO()
+                        wb.save(excel_buffer)
+                        excel_buffer.seek(0)
+                        
+                        st.download_button(
+                            label="Excel",
+                            data=excel_buffer.getvalue(),
+                            file_name=f"vehicle_stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="download_vehicle_excel"
+                        )
+                    except Exception as e:
+                        st.warning(f"Excel download không khả dụng: {e}")
+                
+                # JSON format
+                with col_json:
+                    json_data = df_vehicle_stats.to_json(orient='records', indent=2, default_handler=str)
+                    st.download_button(
+                        label="JSON",
+                        data=json_data,
+                        file_name=f"vehicle_stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime="application/json",
+                        key="download_vehicle_json"
+                    )
             else:
                 st.info("Chưa có dữ liệu chi tiết về loại xe.")
             
             # === CHI TIẾT NHẬT KÝ ===
             with st.expander("Chi tiết nhật ký mật độ"):
                 st.dataframe(df_history.sort_values(by="timestamp", ascending=False), use_container_width=True)
+                
+                # === DOWNLOAD BUTTONS ===
+                st.markdown("**Tải dữ liệu nhật ký:**")
+                col_csv, col_excel, col_json = st.columns(3)
+                
+                # CSV format
+                with col_csv:
+                    csv_data = df_history.to_csv(index=False, encoding='utf-8-sig')
+                    st.download_button(
+                        label="CSV",
+                        data=csv_data,
+                        file_name=f"density_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="download_density_csv"
+                    )
+                
+                # Excel format
+                with col_excel:
+                    excel_buffer = pd.ExcelWriter(path="temp.xlsx", engine='openpyxl')
+                    df_history.to_excel(excel_buffer, sheet_name='Density Log', index=False)
+                    excel_buffer._save()
+                    
+                    with open("temp.xlsx", "rb") as f:
+                        excel_data = f.read()
+                    
+                    st.download_button(
+                        label="Excel",
+                        data=excel_data,
+                        file_name=f"density_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="download_density_excel"
+                    )
+                
+                # JSON format
+                with col_json:
+                    json_data = df_history.to_json(orient='records', indent=2, default_handler=str)
+                    st.download_button(
+                        label="JSON",
+                        data=json_data,
+                        file_name=f"density_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime="application/json",
+                        key="download_density_json"
+                    )
             
             # === DANH SÁCH CHI TIẾT CÁC XE ===
             with st.expander("Danh sách chi tiết các xe đã phát hiện"):
                 df_vehicles = cached_get_vehicle_details(limit=200, start_date=start_date, end_date=end_date)
                 if not df_vehicles.empty:
                     st.dataframe(df_vehicles.sort_values(by="timestamp", ascending=False), use_container_width=True)
+                    
+                    # === DOWNLOAD BUTTONS ===
+                    st.markdown("**Tải dữ liệu chi tiết xe:**")
+                    col_csv, col_excel, col_json = st.columns(3)
+                    
+                    # CSV format
+                    with col_csv:
+                        csv_data = df_vehicles.to_csv(index=False, encoding='utf-8-sig')
+                        st.download_button(
+                            label="CSV",
+                            data=csv_data,
+                            file_name=f"vehicle_details_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv",
+                            key="download_vehicles_csv"
+                        )
+                    
+                    # Excel format
+                    with col_excel:
+                        try:
+                            from openpyxl import Workbook
+                            import io
+                            wb = Workbook()
+                            ws = wb.active
+                            ws.title = "Vehicle Details"
+                            
+                            # Header
+                            for col_idx, col_name in enumerate(df_vehicles.columns, 1):
+                                ws.cell(row=1, column=col_idx, value=col_name)
+                            
+                            # Data
+                            for row_idx, row in enumerate(df_vehicles.values, 2):
+                                for col_idx, value in enumerate(row, 1):
+                                    ws.cell(row=row_idx, column=col_idx, value=value)
+                            
+                            excel_buffer = io.BytesIO()
+                            wb.save(excel_buffer)
+                            excel_buffer.seek(0)
+                            
+                            st.download_button(
+                                label="Excel",
+                                data=excel_buffer.getvalue(),
+                                file_name=f"vehicle_details_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="download_vehicles_excel"
+                            )
+                        except Exception as e:
+                            st.warning(f"Excel download không khả dụng: {e}")
+                    
+                    # JSON format
+                    with col_json:
+                        json_data = df_vehicles.to_json(orient='records', indent=2, default_handler=str)
+                        st.download_button(
+                            label="JSON",
+                            data=json_data,
+                            file_name=f"vehicle_details_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                            mime="application/json",
+                            key="download_vehicles_json"
+                        )
                 else:
                     st.info("Chưa có dữ liệu chi tiết về xe.")
         else:

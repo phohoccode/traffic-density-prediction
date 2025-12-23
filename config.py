@@ -62,3 +62,23 @@ DB_UPDATE_INTERVAL = 30
 TRACKER_TYPE = "bytetrack.yaml"  # ByteTrack - fast and accurate
 # Set để lưu ID các xe đã tracking (reset khi chạy mới)
 TRACKED_VEHICLE_IDS = set()
+
+# ==================== Device Configuration ====================
+import torch
+
+# Auto detect: cuda nếu có GPU, cpu nếu không
+# Có thể thay bằng 'cpu' để force CPU
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+# Kiểm tra thông tin GPU
+if torch.cuda.is_available():
+    GPU_NAME = torch.cuda.get_device_name(0)
+    GPU_VRAM = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # Convert to GB
+else:
+    GPU_NAME = "None"
+    GPU_VRAM = 0
+
+print(f"Device: {DEVICE.upper()}")
+if torch.cuda.is_available():
+    print(f"GPU: {GPU_NAME}")
+    print(f"VRAM: {GPU_VRAM:.2f} GB")

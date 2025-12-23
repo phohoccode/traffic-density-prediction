@@ -9,11 +9,15 @@ from database import insert_density, insert_tracked_vehicle, update_tracked_vehi
 from datetime import datetime
 import threading
 import queue
+import requests
+import json
 
 # Biến đếm frame toàn cục để kiểm soát tốc độ ghi DB
 frame_counter = 0
 # Set để lưu ID các xe đã tracking (để chỉ lưu xe mới)
 tracked_vehicle_ids = set()
+# WebSocket Server URL
+WEBSOCKET_SERVER_URL = "http://localhost:5000"
 
 # COCO dataset class names mapping (các class ID liên quan đến xe)
 COCO_VEHICLE_CLASSES = {
@@ -22,6 +26,37 @@ COCO_VEHICLE_CLASSES = {
     5: "bus",           # Xe buýt
     7: "truck"          # Xe tải
 }
+
+# ==================== WebSocket Communication Functions ====================
+def send_to_websocket(endpoint, data):
+    """
+    Gửi dữ liệu đến WebSocket server qua REST API
+    :param endpoint: API endpoint (e.g., 'density_update', 'vehicle_types_update')
+    :param data: Dictionary chứa dữ liệu cần gửi
+    """
+    try:
+        url = f"{WEBSOCKET_SERVER_URL}/emit"
+        payload = {
+            "event": endpoint,
+            "data": data
+        }
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(url, json=payload, headers=headers, timeout=2)
+        if response.status_code == 200:
+            print(f"[WebSocket] Sent {endpoint} successfully")
+        else:
+            print(f"[WebSocket] Error: {response.status_code}")
+    except requests.exceptions.ConnectionError:
+        print(f"[WebSocket] Connection refused - server may not be running at {WEBSOCKET_SERVER_URL}")
+    except Exception as e:
+        print(f"[WebSocket Error] {str(e)}")
+
+def emit_websocket_event(event_name, data):
+    """
+    Emit event tới WebSocket server
+    Wrapper function cho send_to_websocket
+    """
+    send_to_websocket(event_name, data)
 
 def _display_detected_frames(conf, model, st_count, st_frame, image):
     """
@@ -97,7 +132,7 @@ def _display_detected_frames(conf, model, st_count, st_frame, image):
         status = "Thong thoang"
         color = (0, 255, 0)
     elif current_count > config.THRESHOLD_CONGESTED:
-        status = "TTac nghen"
+        status = "Tac nghen"
         color = (0, 0, 255) # Red
         st.toast(f"Mat do cao: {current_count} xe!")
     else:
@@ -117,6 +152,19 @@ def _display_detected_frames(conf, model, st_count, st_frame, image):
     if frame_counter % config.DB_UPDATE_INTERVAL == 0:
         # Chỉ lưu mật độ tổng thể, không lưu chi tiết vì đã lưu khi tracking xe mới
         insert_density(current_count, status)
+        
+        # === GỬI DỮ LIỆU QUA WEBSOCKET ===
+        # 1. Gửi update mật độ
+        emit_websocket_event('density_update', {
+            'count': current_count,
+            'status': status
+        })
+        
+        # 2. Gửi update loại xe
+        if vehicle_types_in_frame:
+            emit_websocket_event('vehicle_types_update', {
+                'vehicle_types': vehicle_types_in_frame
+            })
 
     inText = 'Xe vào'
     outText = 'Xe ra'
@@ -127,6 +175,9 @@ def _display_detected_frames(conf, model, st_count, st_frame, image):
         for _, (key, value) in enumerate(config.OBJECT_COUNTER.items()):
             outText += ' - ' + str(key) + ": " +str(value)
     
+    print(inText)
+    print(outText)
+
     # Display counter info and detected video
     st_count.write(inText + '\n\n' + outText)
     st_count.write(f"### Trạng thái: {status}\nSố xe hiện tại: {current_count}")
@@ -142,9 +193,12 @@ def load_model(model_path):
         model_path (str): The path to the YOLO model file.
 
     Returns:
-        A YOLO object detection model.
+        A YOLO object detection model loaded on the configured device.
     """
     model = YOLO(model_path)
+    # Move model to configured device (GPU or CPU)
+    model.to(config.DEVICE)
+    st.write(f"Model loaded on {config.DEVICE.upper()}")
     return model
 
 
@@ -235,6 +289,11 @@ def infer_uploaded_video(conf, model):
             
             with st.spinner("Đang xử lý video..."):
                 try:
+                    # === GỬI SIGNAL BẮT ĐẦU PHÂN TÍCH ===
+                    emit_websocket_event('analysis_start', {
+                        'message': 'Video analysis started'
+                    })
+                    
                     frame_counter = 0
                     tracked_vehicle_ids.clear()  # Reset tracking IDs
                     config.OBJECT_COUNTER1 = None
@@ -269,6 +328,12 @@ def infer_uploaded_video(conf, model):
                     
                     vid_cap.release()
                     st_progress.empty()
+                    
+                    # === GỬI SIGNAL HOÀN THÀNH PHÂN TÍCH ===
+                    emit_websocket_event('analysis_complete', {
+                        'message': 'Video analysis completed successfully',
+                        'total_frames': current_frame
+                    })
                     
                     # Báo hiệu cho tab2 biết rằng có dữ liệu mới
                     st.session_state.video_analyzed = True
@@ -308,7 +373,7 @@ def infer_uploaded_webcam(conf, model):
                 st.session_state.webcam_initialized = False
     
     if st.session_state.webcam_running:
-        st.info("🎥 Webcam đang chạy. Bạn có thể chuyển sang tab Bảng điều khiển để xem dữ liệu cập nhật.")
+        st.info("Webcam đang chạy. Bạn có thể chuyển sang tab Bảng điều khiển để xem dữ liệu cập nhật.")
         try:
             if not st.session_state.webcam_initialized:
                 frame_counter = 0
