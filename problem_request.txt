@@ -1,0 +1,67 @@
+1. Dữ liệu cần có trên Dashboard
+Dashboard được mô tả là tầng "Hiển thị và Cảnh báo", cần cung cấp các thông tin trực quan sau:
+
+
+Video trực tiếp (Live Stream/Webcam): Hiển thị luồng hình ảnh từ camera với các khung bao (bounding boxes) quanh phương tiện và nhãn tên loại xe (Ô tô, xe máy, xe buýt).
+
+
+
+
+
+Số lượng phương tiện hiện tại: Đếm số lượng xe đang xuất hiện trong khung hình theo thời gian thực.
+
+
+
+
+
+Trạng thái mật độ giao thông: Hiển thị các mức độ cảnh báo như "Thông thoáng", "Bình thường", "Đông đúc" hoặc "Tắc nghẽn" dựa trên các ngưỡng số lượng xe đã cài đặt.
+
+
+
+
+Biểu đồ thống kê: Biểu đồ biến thiên lưu lượng xe và mật độ giao thông theo thời gian thực.
+
+
+
+
+Phân loại phương tiện: Thống kê chi tiết số lượng theo từng loại (xe máy, ô tô con, xe buýt, xe tải).
+
+
+2. Thiết kế Cơ sở dữ liệu (Database)
+Bài báo cáo có nhắc đến việc xây dựng cơ sở dữ liệu để "lưu trữ lịch sử lưu lượng". Dưới đây là gợi ý thiết kế các bảng (tables) phù hợp với mục tiêu nghiên cứu của đề tài:
+
+Bảng traffic_logs (Lưu lịch sử đếm xe)
+Bảng này dùng để lưu dữ liệu đếm được từ thuật toán đếm xe qua vạch kẻ ảo.
+
+id (Primary Key): Mã định danh bản ghi.
+
+timestamp: Thời gian ghi nhận (để vẽ biểu đồ biến thiên).
+
+
+vehicle_type: Loại phương tiện nhận diện được (car, motorbike, bus, truck).
+
+
+direction: Hướng di chuyển (vào/ra hoặc North/South - nếu có phân biệt hướng qua vạch kẻ ảo).
+
+Bảng traffic_density (Lưu mật độ giao thông)
+Bảng này phục vụ việc thống kê mật độ để hỗ trợ điều tiết giao thông.
+
+id (Primary Key): Mã định danh bản ghi.
+
+timestamp: Thời gian tính toán mật độ.
+
+
+total_vehicles: Tổng số lượng xe trong khung hình tại thời điểm đó.
+
+
+density_status: Trạng thái mật độ (Low, Medium, High hoặc Thông thoáng, Đông đúc...).
+
+
+Bảng system_config (Cấu hình hệ thống)
+id: Mã cấu hình.
+
+
+threshold_low/medium/high: Các ngưỡng số lượng xe để xác định trạng thái mật độ (ví dụ: < 10 xe là thông thoáng).
+
+
+virtual_line_coords: Tọa độ của vạch kẻ ảo trên màn hình để thuật toán đếm xe hoạt động.
