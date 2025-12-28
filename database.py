@@ -1,7 +1,11 @@
 import pymongo
 from datetime import datetime
 import pandas as pd
-import streamlit as st
+import logging
+
+# Cấu hình logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- CẤU HÌNH KẾT NỐI MONGODB ---
 # Nếu bạn dùng MongoDB Atlas (Cloud), hãy thay chuỗi kết nối vào đây.
@@ -10,7 +14,7 @@ MONGO_URI = "mongodb://localhost:27017/"
 DB_NAME = "traffic_system"
 COLLECTION_NAME = "density_logs"
 
-# Cache connection globally (not using @st.cache_resource to avoid Streamlit element conflicts)
+# Cache connection globally
 _db_connection = None
 _connection_attempted = False
 
@@ -32,11 +36,12 @@ def get_db_connection():
         client.server_info()
         _db_connection = client[DB_NAME]
         _connection_attempted = True
+        logger.info("✓ Kết nối MongoDB thành công")
         return _db_connection
     except Exception as e:
         _connection_attempted = True
-        st.error(f"❌ Không thể kết nối MongoDB: {e}")
-        st.warning("Ứng dụng vẫn hoạt động nhưng dữ liệu sẽ không được lưu vào database.")
+        logger.error(f"❌ Không thể kết nối MongoDB: {e}")
+        logger.warning("Ứng dụng vẫn hoạt động nhưng dữ liệu sẽ không được lưu vào database.")
         return None
 
 def init_db():
@@ -61,7 +66,7 @@ def insert_density(total_vehicles, status):
             }
             db[COLLECTION_NAME].insert_one(record)
         except Exception as e:
-            st.warning(f"Lỗi khi lưu vào DB: {e}")
+            logger.warning(f"Lỗi khi lưu vào DB: {e}")
 
 def get_density_history(limit=100):
     """Lấy dữ liệu lịch sử để vẽ biểu đồ"""

@@ -311,11 +311,11 @@
       <div class="controls">
         <button id="resetBtn" onclick="resetData()">Đặt lại dữ liệu</button>
         <button
-          id="toggleAutoScroll"
-          onclick="toggleAutoScroll()"
-          style="background-color: #764ba2"
+          id="syncBtn"
+          onclick="syncDataWithServer()"
+          style="background-color: #059669"
         >
-          ↓ Tự động cuộn
+          Đồng bộ dữ liệu
         </button>
         <span class="status-text">
           <span>Clients kết nối:</span>
@@ -323,6 +323,67 @@
             >0</span
           >
         </span>
+      </div>
+
+      <!-- Time Filter -->
+      <div class="chart-section">
+        <div class="chart-title">Bộ lọc thời gian</div>
+        <div
+          style="
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 15px;
+          "
+        >
+          <select
+            id="timeFilterSelect"
+            onchange="handleTimeFilterChange()"
+            style="
+              padding: 8px 12px;
+              border: 1px solid #ddd;
+              border-radius: 5px;
+              font-size: 14px;
+            "
+          >
+            <option value="all">Tất cả dữ liệu</option>
+            <option value="1h">1 giờ qua</option>
+            <option value="6h">6 giờ qua</option>
+            <option value="24h">24 giờ qua</option>
+            <option value="7d">7 ngày qua</option>
+            <option value="custom">Tùy chỉnh</option>
+          </select>
+
+          <div
+            id="customDateRange"
+            style="display: none; gap: 10px; display: flex; align-items: center"
+          >
+            <div>
+              <label style="font-size: 12px; color: #666">Từ ngày:</label>
+              <input
+                type="datetime-local"
+                id="startDateTime"
+                style="padding: 8px; border: 1px solid #ddd; border-radius: 5px"
+              />
+            </div>
+            <div>
+              <label style="font-size: 12px; color: #666">Đến ngày:</label>
+              <input
+                type="datetime-local"
+                id="endDateTime"
+                style="padding: 8px; border: 1px solid #ddd; border-radius: 5px"
+              />
+            </div>
+          </div>
+
+          <button
+            onclick="applyTimeFilter()"
+            style="background-color: #667eea; padding: 8px 20px"
+          >
+            Áp dụng
+          </button>
+        </div>
       </div>
 
       <!-- Metrics -->
@@ -432,6 +493,14 @@
         connectedClients: 0,
       };
 
+      // Time filter state
+      let timeFilterState = {
+        mode: "all",
+        startDate: null,
+        endDate: null,
+        filteredDensityHistory: [],
+      };
+
       // ==================== Initialize Socket.IO ====================
       function initSocket() {
         try {
@@ -464,6 +533,10 @@
         if (socket) {
           socket.emit("request_state");
         }
+
+        // Lấy dữ liệu thống kê từ API để đồng bộ với database
+        fetchVehicleStats();
+        fetchDensityHistory();
       }
 
       function onSocketDisconnect() {
@@ -521,6 +594,9 @@
         state.totalVehicles = data.total_detected;
         updateUI();
         updateCharts();
+
+        // Refresh data from API để đảm bảo đồng bộ
+        setTimeout(() => fetchVehicleStats(), 500);
       }
 
       function onCurrentState(data) {
@@ -549,6 +625,12 @@
 
         updateUI();
         updateCharts();
+
+        // Refresh từ API để đảm bảo dữ liệu chính xác
+        setTimeout(() => {
+          fetchVehicleStats();
+          fetchDensityHistory();
+        }, 500);
       }
 
       function onAnalysisStart(data) {
@@ -564,6 +646,237 @@
 
       function onAnalysisComplete(data) {
         showAlert("Hoàn thành phân tích video: " + data.message, "success");
+      }
+
+      // ==================== API Data Fetching ====================
+      function fetchVehicleStats() {
+        fetch(`${SOCKET_SERVER}/api/vehicle_stats`)
+          .then((response) => response.json())
+          .then((data) => {
+            console.log("Vehicle stats from API:", data);
+            if (data.vehicle_types) {
+              state.vehicleTypes = data.vehicle_types;
+              state.totalVehicles = data.total_vehicles || 0;
+              updateUI();
+              updateCharts();
+            }
+          })
+          .catch((error) =>
+            console.error("Error fetching vehicle stats:", error)
+          );
+      }
+
+      function fetchDensityHistory() {
+        fetch(`${SOCKET_SERVER}/api/density_history`)
+          .then((response) => response.json())
+          .then((data) => {
+            console.log("Density history from API:", data);
+            if (data.density_history) {
+              state.densityHistory = data.density_history.map((record) => ({
+                timestamp: new Date(record.timestamp).toLocaleTimeString(
+                  "vi-VN"
+                ),
+                density: record.density,
+                status: record.status || "Normal",
+                fullTime: new Date(record.timestamp),
+              }));
+
+              // Recalculate peaks
+              if (state.densityHistory.length > 0) {
+                state.peakDensity = Math.max(
+                  ...state.densityHistory.map((r) => r.density)
+                );
+                state.minDensity = Math.min(
+                  ...state.densityHistory.map((r) => r.density)
+                );
+              }
+
+              updateUI();
+              updateCharts();
+            }
+          })
+          .catch((error) =>
+            console.error("Error fetching density history:", error)
+          );
+      }
+
+      function syncDataWithServer() {
+        fetch(`${SOCKET_SERVER}/api/sync`, { method: "POST" })
+          .then((response) => response.json())
+          .then((data) => {
+            console.log("Sync result:", data);
+            if (data.status === "success") {
+              showAlert("✓ Dữ liệu đã được đồng bộ từ server", "success");
+              // Refresh lại dữ liệu
+              setTimeout(() => {
+                fetchVehicleStats();
+                fetchDensityHistory();
+              }, 500);
+            }
+          })
+          .catch((error) => {
+            console.error("Sync error:", error);
+            showAlert("Lỗi đồng bộ dữ liệu", "warning");
+          });
+      }
+
+      // ==================== Time Filter Functions ====================
+      function handleTimeFilterChange() {
+        const select = document.getElementById("timeFilterSelect");
+        const customRange = document.getElementById("customDateRange");
+
+        if (select.value === "custom") {
+          customRange.style.display = "flex";
+          // Set default values to current time
+          const now = new Date();
+          const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+          document.getElementById("startDateTime").value =
+            formatDateTimeLocal(oneHourAgo);
+          document.getElementById("endDateTime").value =
+            formatDateTimeLocal(now);
+        } else {
+          customRange.style.display = "none";
+        }
+      }
+
+      function formatDateTimeLocal(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        const hours = String(date.getHours()).padStart(2, "0");
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+      }
+
+      function applyTimeFilter() {
+        const filterMode = document.getElementById("timeFilterSelect").value;
+        const now = new Date();
+        let startDate = null;
+        let endDate = now;
+
+        switch (filterMode) {
+          case "all":
+            startDate = null;
+            break;
+          case "1h":
+            startDate = new Date(now.getTime() - 60 * 60 * 1000);
+            break;
+          case "6h":
+            startDate = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+            break;
+          case "24h":
+            startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            break;
+          case "7d":
+            startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            break;
+          case "custom":
+            const startInput = document.getElementById("startDateTime").value;
+            const endInput = document.getElementById("endDateTime").value;
+            if (!startInput || !endInput) {
+              showAlert("Vui lòng chọn khoảng thời gian", "warning");
+              return;
+            }
+            startDate = new Date(startInput);
+            endDate = new Date(endInput);
+            break;
+        }
+
+        timeFilterState.mode = filterMode;
+        timeFilterState.startDate = startDate;
+        timeFilterState.endDate = endDate;
+
+        // Filter data
+        filterData();
+      }
+
+      function filterData() {
+        const { startDate, endDate } = timeFilterState;
+
+        // Filter density history
+        timeFilterState.filteredDensityHistory = state.densityHistory.filter(
+          (record) => {
+            if (!record.fullTime) return true;
+
+            if (startDate && record.fullTime < startDate) return false;
+            if (endDate && record.fullTime > endDate) return false;
+            return true;
+          }
+        );
+
+        // Update UI with filtered data
+        updateCharts();
+        updateDetailedLogsFiltered();
+        updateMetricsFiltered();
+      }
+
+      function updateMetricsFiltered() {
+        const filtered = timeFilterState.filteredDensityHistory;
+
+        if (filtered.length === 0) {
+          document.getElementById("totalRecords").textContent = "0";
+          document.getElementById("peakDensity").textContent = "0";
+          document.getElementById("minDensity").textContent = "0";
+          return;
+        }
+
+        const densities = filtered.map((r) => r.density);
+        document.getElementById("totalRecords").textContent = filtered.length;
+        document.getElementById("peakDensity").textContent = Math.max(
+          ...densities
+        );
+        document.getElementById("minDensity").textContent = Math.min(
+          ...densities
+        );
+      }
+
+      function updateDetailedLogsFiltered() {
+        const container = document.getElementById("detailedLog");
+        const filtered = timeFilterState.filteredDensityHistory
+          .slice()
+          .reverse()
+          .slice(0, 20);
+
+        if (filtered.length === 0) {
+          container.innerHTML =
+            '<div class="no-data">Chưa có dữ liệu trong khoảng thời gian này</div>';
+          return;
+        }
+
+        const html = `
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <thead>
+                        <tr style="background-color: #f3f4f6; border-bottom: 1px solid #e5e7eb;">
+                            <th style="padding: 10px; text-align: left;">Thời gian</th>
+                            <th style="padding: 10px; text-align: center;">Số xe</th>
+                            <th style="padding: 10px; text-align: left;">Trạng thái</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${filtered
+                          .map(
+                            (log) => `
+                            <tr style="border-bottom: 1px solid #e5e7eb;">
+                                <td style="padding: 10px;">${log.timestamp}</td>
+                                <td style="padding: 10px; text-align: center; font-weight: bold;">${
+                                  log.density
+                                }</td>
+                                <td style="padding: 10px;">
+                                    <span class="status-badge ${getStatusClass(
+                                      log.density
+                                    )}" style="font-size: 11px;">
+                                        ${getStatusText(log.density)}
+                                    </span>
+                                </td>
+                            </tr>
+                        `
+                          )
+                          .join("")}
+                    </tbody>
+                </table>
+            `;
+        container.innerHTML = html;
       }
 
       // ==================== UI Updates ====================
@@ -829,11 +1142,15 @@
       function updateCharts() {
         if (!densityChart || !vehicleTypesChart) return;
 
+        // Use filtered data if time filter is active
+        const dataToUse =
+          timeFilterState.mode !== "all"
+            ? timeFilterState.filteredDensityHistory
+            : state.densityHistory;
+
         // Update density chart
-        densityChart.data.labels = state.densityHistory.map((r) => r.timestamp);
-        densityChart.data.datasets[0].data = state.densityHistory.map(
-          (r) => r.density
-        );
+        densityChart.data.labels = dataToUse.map((r) => r.timestamp);
+        densityChart.data.datasets[0].data = dataToUse.map((r) => r.density);
         densityChart.update("none");
 
         // Update vehicle types chart

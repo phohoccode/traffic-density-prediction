@@ -13,6 +13,13 @@ import json
 from datetime import datetime
 from collections import deque, defaultdict
 
+# Import database functions
+try:
+    from database import get_vehicle_stats_by_type, get_density_history
+except ImportError:
+    get_vehicle_stats_by_type = None
+    get_density_history = None
+
 app = Flask(__name__, template_folder='.', static_folder='.')
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -52,7 +59,12 @@ class AnalysisDataStore:
         """Cập nhật số lượng loại xe từ frame hiện tại"""
         with self.lock:
             for vehicle_type, count in vehicle_types_dict.items():
+                # Tăng số lượng loại xe này
                 self.vehicle_types_count[vehicle_type] += count
+    
+    def get_total_vehicles(self):
+        """Lấy tổng số xe từ tất cả các loại (không cần lock vì chỉ đọc)"""
+        return sum(self.vehicle_types_count.values())
     
     def get_current_state(self):
         """Lấy trạng thái hiện tại"""
@@ -62,7 +74,7 @@ class AnalysisDataStore:
                 "current_status": self.current_status,
                 "density_history": list(self.density_history),
                 "vehicle_types": dict(self.vehicle_types_count),
-                "total_vehicles_detected": self.total_vehicles_detected,
+                "total_vehicles_detected": self.get_total_vehicles(),
                 "connected_clients": len(self.connected_clients)
             }
     
@@ -86,6 +98,130 @@ def index():
 def get_data():
     """REST API endpoint để lấy dữ liệu"""
     return jsonify(data_store.get_current_state())
+
+@app.route('/api/vehicle_stats', methods=['GET'])
+def get_vehicle_stats():
+    """
+    REST API endpoint để lấy thống kê xe từ database
+    Đồng bộ dữ liệu từ MongoDB để đảm bảo chính xác
+    """
+    try:
+        if get_vehicle_stats_by_type is None:
+            return jsonify({
+                "vehicle_types": dict(data_store.vehicle_types_count),
+                "total_vehicles": data_store.get_total_vehicles()
+            })
+        
+        # Lấy dữ liệu từ database (tất cả dữ liệu)
+        df_stats = get_vehicle_stats_by_type(start_date=None, end_date=None)
+        
+        if df_stats is not None and not df_stats.empty:
+            # Tính tổng từ database
+            total_vehicles = df_stats['count'].sum()
+            vehicle_types = {}
+            
+            for _, row in df_stats.iterrows():
+                vehicle_types[row['vehicle_type']] = int(row['count'])
+            
+            # Cập nhật data_store với dữ liệu từ database
+            data_store.vehicle_types_count = defaultdict(int, vehicle_types)
+            
+            return jsonify({
+                "vehicle_types": vehicle_types,
+                "total_vehicles": int(total_vehicles),
+                "source": "database"
+            })
+        else:
+            return jsonify({
+                "vehicle_types": dict(data_store.vehicle_types_count),
+                "total_vehicles": data_store.get_total_vehicles(),
+                "source": "memory"
+            })
+    
+    except Exception as e:
+        print(f"[Error] Failed to get vehicle stats: {str(e)}")
+        return jsonify({
+            "error": str(e),
+            "vehicle_types": dict(data_store.vehicle_types_count),
+            "total_vehicles": data_store.get_total_vehicles()
+        }), 500
+
+@app.route('/api/density_history', methods=['GET'])
+def get_density_history_api():
+    """
+    REST API endpoint để lấy lịch sử mật độ từ database
+    """
+    try:
+        if get_density_history is None:
+            return jsonify({
+                "density_history": list(data_store.density_history)
+            })
+        
+        # Lấy dữ liệu từ database
+        df_history = get_density_history(limit=500)
+        
+        if df_history is not None and not df_history.empty:
+            history = []
+            for _, row in df_history.iterrows():
+                history.append({
+                    "timestamp": str(row['timestamp']),
+                    "density": int(row['total_vehicles']),
+                    "status": row.get('status', 'Normal')
+                })
+            
+            return jsonify({
+                "density_history": history,
+                "source": "database"
+            })
+        else:
+            return jsonify({
+                "density_history": list(data_store.density_history),
+                "source": "memory"
+            })
+    
+    except Exception as e:
+        print(f"[Error] Failed to get density history: {str(e)}")
+        return jsonify({
+            "density_history": list(data_store.density_history),
+            "error": str(e)
+        }), 500
+
+@app.route('/api/sync', methods=['POST'])
+def sync_data():
+    """
+    Endpoint để WebSocket server đồng bộ dữ liệu từ database
+    Giúp cập nhật in-memory store với dữ liệu mới nhất từ MongoDB
+    """
+    try:
+        if get_vehicle_stats_by_type is None:
+            return jsonify({"status": "skip", "reason": "Database module not available"}), 200
+        
+        # Lấy dữ liệu từ database
+        df_stats = get_vehicle_stats_by_type(start_date=None, end_date=None)
+        
+        if df_stats is not None and not df_stats.empty:
+            # Reset và update data store
+            with data_store.lock:
+                data_store.vehicle_types_count.clear()
+                for _, row in df_stats.iterrows():
+                    data_store.vehicle_types_count[row['vehicle_type']] = int(row['count'])
+                data_store.total_vehicles_detected = int(df_stats['count'].sum())
+            
+            # Broadcast update tới tất cả clients
+            socketio.emit('current_state', data_store.get_current_state(), to=None, namespace='/')
+            
+            print(f"[Sync] Data synchronized from database")
+            return jsonify({
+                "status": "success",
+                "total_vehicles": data_store.get_total_vehicles(),
+                "vehicle_types": dict(data_store.vehicle_types_count)
+            })
+        else:
+            return jsonify({"status": "no_data"}), 200
+    
+    except Exception as e:
+        print(f"[Error] Sync failed: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/emit', methods=['POST'])
 def emit_event():
@@ -117,14 +253,16 @@ def emit_event():
         elif event_name == 'vehicle_types_update':
             vehicle_types = event_data.get('vehicle_types', {})
             
-            # Cập nhật vào data store
-            data_store.update_vehicle_types(vehicle_types)
+            # Không cộng dồn từ frame vì sẽ đếm lặp
+            # Thay vào đó, lấy tổng từ database (thông qua API)
+            # Chỉ broadcast sự kiện để client có thể gọi API để lấy dữ liệu mới nhất
             
             # Broadcast tới tất cả clients
             socketio.emit('vehicle_types_update', {
                 'timestamp': datetime.now().isoformat(),
-                'vehicle_types': dict(data_store.vehicle_types_count),
-                'total_detected': data_store.total_vehicles_detected
+                'vehicle_types': vehicle_types,
+                'total_detected': sum(vehicle_types.values()) if vehicle_types else 0,
+                'note': 'Dữ liệu chi tiết nên lấy từ /api/vehicle_stats'
             }, to=None, namespace='/')
             
             print(f"[Emit] Vehicle types update: {vehicle_types}")
