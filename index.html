@@ -493,6 +493,9 @@
         connectedClients: 0,
       };
 
+      // Auto-refresh timer
+      let autoRefreshTimer = null;
+
       // Time filter state
       let timeFilterState = {
         mode: "all",
@@ -553,39 +556,53 @@
         const timestamp = new Date(data.timestamp);
         const timeStr = timestamp.toLocaleTimeString("vi-VN");
 
-        // Add to history
-        state.densityHistory.push({
+        // Tạo object bản ghi mới
+        const newRecord = {
           timestamp: timeStr,
           density: data.density,
           status: data.status,
           fullTime: timestamp,
-        });
+        };
 
-        // Keep only last MAX_HISTORY records
+        // 1. Luôn thêm vào lịch sử gốc (Code cũ)
+        state.densityHistory.push(newRecord);
         if (state.densityHistory.length > MAX_HISTORY) {
           state.densityHistory.shift();
         }
 
-        // Update state
+        // --- THÊM ĐOẠN NÀY VÀO ---
+        // 2. Kiểm tra: Nếu đang dùng bộ lọc (mode khác 'all'), phải thêm thủ công vào mảng lọc
+        if (timeFilterState.mode !== "all") {
+          // Chỉ thêm nếu nó phù hợp thời gian (thường dữ liệu realtime luôn phù hợp vì là mới nhất)
+          timeFilterState.filteredDensityHistory.push(newRecord);
+
+          // Giới hạn mảng lọc để không quá dài (tùy chọn)
+          if (timeFilterState.filteredDensityHistory.length > MAX_HISTORY) {
+            timeFilterState.filteredDensityHistory.shift();
+          }
+        }
+        // --------------------------
+
+        // Cập nhật State khác (Code cũ giữ nguyên)
         state.currentDensity = data.density;
         state.currentStatus = data.status;
         state.peakDensity = Math.max(state.peakDensity, data.density);
         state.minDensity = Math.min(state.minDensity, data.density);
 
-        // Add to detailed logs
+        // Cập nhật Logs (Code cũ giữ nguyên)
         detailedLogs.unshift({
           timestamp: timestamp.toLocaleString("vi-VN"),
           density: data.density,
           status: data.status,
         });
-
-        // Keep only last 20 logs
         if (detailedLogs.length > 20) {
           detailedLogs.pop();
         }
 
-        // Update UI
+        // Cập nhật UI
         updateUI();
+
+        // 3. Bây giờ bạn có thể dùng updateCharts() bình thường
         updateCharts();
       }
 
@@ -596,7 +613,18 @@
         updateCharts();
 
         // Refresh data from API để đảm bảo đồng bộ
-        setTimeout(() => fetchVehicleStats(), 500);
+        setTimeout(() => {
+          fetchVehicleStats();
+          fetchDensityHistory();
+        }, 500);
+
+        // Bắt đầu auto-refresh định kỳ nếu video đang xử lý
+        if (!autoRefreshTimer) {
+          autoRefreshTimer = setInterval(() => {
+            fetchDensityHistory();
+            fetchVehicleStats();
+          }, 2000); // Refresh mỗi 2 giây
+        }
       }
 
       function onCurrentState(data) {
@@ -646,6 +674,12 @@
 
       function onAnalysisComplete(data) {
         showAlert("Hoàn thành phân tích video: " + data.message, "success");
+
+        // Dừng auto-refresh khi video hoàn thành
+        if (autoRefreshTimer) {
+          clearInterval(autoRefreshTimer);
+          autoRefreshTimer = null;
+        }
       }
 
       // ==================== API Data Fetching ====================
@@ -689,6 +723,11 @@
                 state.minDensity = Math.min(
                   ...state.densityHistory.map((r) => r.density)
                 );
+              }
+
+              // Re-apply time filter nếu filter đang active
+              if (timeFilterState.mode !== "all") {
+                filterData();
               }
 
               updateUI();
