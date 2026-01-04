@@ -809,6 +809,7 @@
         updateCharts();
         updateDetailedLogsFiltered();
         updateMetricsFiltered();
+        updateVehicleTypesSummary();
       }
 
       function updateMetricsFiltered() {
@@ -924,7 +925,16 @@
 
       function updateVehicleTypesSummary() {
         const container = document.getElementById("vehicleTypesSummary");
-        if (Object.keys(state.vehicleTypes).length === 0) {
+
+        // Use filtered vehicle types if time filter is active
+        const vehicleTypesToShow =
+          timeFilterState.mode !== "all"
+            ? calculateVehicleTypesFromHistory(
+                timeFilterState.filteredDensityHistory
+              )
+            : state.vehicleTypes;
+
+        if (Object.keys(vehicleTypesToShow).length === 0) {
           container.innerHTML =
             '<div class="no-data" style="grid-column: 1/-1;">Chưa có dữ liệu</div>';
           return;
@@ -937,7 +947,7 @@
           bus: "Xe buýt",
         };
 
-        container.innerHTML = Object.entries(state.vehicleTypes)
+        container.innerHTML = Object.entries(vehicleTypesToShow)
           .map(
             ([type, count]) => `
                     <div class="vehicle-type-card">
@@ -1153,7 +1163,7 @@
         densityChart.data.datasets[0].data = dataToUse.map((r) => r.density);
         densityChart.update("none");
 
-        // Update vehicle types chart
+        // Update vehicle types chart with filtered data
         const vehicleNames = {
           car: "Ô tô",
           motorcycle: "Xe máy",
@@ -1161,12 +1171,49 @@
           bus: "Xe buýt",
         };
 
-        const types = Object.keys(state.vehicleTypes).sort();
+        // Calculate vehicle types from filtered density history
+        const filteredVehicleTypes =
+          calculateVehicleTypesFromHistory(dataToUse);
+
+        const types = Object.keys(filteredVehicleTypes).sort();
         vehicleTypesChart.data.labels = types.map((t) => vehicleNames[t] || t);
         vehicleTypesChart.data.datasets[0].data = types.map(
-          (t) => state.vehicleTypes[t] || 0
+          (t) => filteredVehicleTypes[t] || 0
         );
         vehicleTypesChart.update("none");
+      }
+
+      function calculateVehicleTypesFromHistory(historyData) {
+        // If no history data or time filter is not active, return current vehicle types
+        if (
+          timeFilterState.mode === "all" ||
+          !historyData ||
+          historyData.length === 0
+        ) {
+          return state.vehicleTypes;
+        }
+
+        // For filtered data, we need to calculate proportional vehicle counts
+        // based on total vehicles in the filtered period
+        const totalDensityInFiltered = historyData.reduce(
+          (sum, r) => sum + r.density,
+          0
+        );
+        const totalDensityInAll = state.densityHistory.reduce(
+          (sum, r) => sum + r.density,
+          0
+        );
+
+        if (totalDensityInAll === 0) return state.vehicleTypes;
+
+        const ratio = totalDensityInFiltered / totalDensityInAll;
+        const filteredTypes = {};
+
+        Object.keys(state.vehicleTypes).forEach((type) => {
+          filteredTypes[type] = Math.round(state.vehicleTypes[type] * ratio);
+        });
+
+        return filteredTypes;
       }
 
       // ==================== Initialization ====================
